@@ -1,0 +1,188 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Tenant {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String   @db.VarChar(255)
+  dbHost          String   @map("db_host") @db.VarChar(255)
+  dbName          String   @map("db_name") @db.VarChar(255)
+  replicaUrl      String?  @map("replica_url") @db.Text
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  queryTemplates  QueryTemplate[]
+  recommendations Recommendation[]
+  collectorRuns   CollectorRun[]
+
+  @@map("tenants")
+}
+
+model QueryTemplate {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+
+  fingerprintHash String   @map("fingerprint_hash") @db.VarChar(64)
+  normalizedSql   String   @map("normalized_sql") @db.Text
+  rawSqlSample    String   @map("raw_sql_sample") @db.Text
+  tables          Json?
+  columns         Json?
+
+  totalCalls      BigInt   @default(0) @map("total_calls")
+  totalTimeMs     Float    @default(0) @map("total_time_ms")
+  meanTimeMs      Float    @default(0) @map("mean_time_ms")
+  minTimeMs       Float    @default(0) @map("min_time_ms")
+  maxTimeMs       Float    @default(0) @map("max_time_ms")
+  rows            BigInt   @default(0)
+  sharedBlksHit   BigInt   @default(0) @map("shared_blks_hit")
+  sharedBlksRead  BigInt   @default(0) @map("shared_blks_read")
+
+  impactScore     Float    @default(0) @map("impact_score")
+
+  firstSeenAt     DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt      DateTime @updatedAt      @map("last_seen_at")
+
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  explainPlans    ExplainPlan[]
+  recommendations Recommendation[]
+
+  @@unique([tenantId, fingerprintHash])
+  @@index([tenantId, impactScore(sort: Desc)])
+  @@index([tenantId, lastSeenAt])
+  @@map("query_templates")
+}
+
+model ExplainPlan {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId       String   @map("template_id") @db.Uuid
+
+  planJson         Json     @map("plan_json")
+  estimatedCost    Float    @map("estimated_cost")
+  actualDurationMs Float    @map("actual_duration_ms")
+  planningTimeMs   Float    @map("planning_time_ms")
+  hasSeqScan       Boolean  @default(false) @map("has_seq_scan")
+  hasHashJoin      Boolean  @default(false) @map("has_hash_join")
+  hasNestedLoop    Boolean  @default(false) @map("has_nested_loop")
+  rowsEstimate     BigInt   @map("rows_estimate")
+  rowsActual       BigInt   @map("rows_actual")
+  rowsEstimateErr  Float    @map("rows_estimate_err")
+
+  capturedAt       DateTime @default(now()) @map("captured_at")
+
+  template         QueryTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId, capturedAt])
+  @@map("explain_plans")
+}
+
+model Recommendation {
+  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String               @map("tenant_id") @db.Uuid
+  templateId     String               @map("template_id") @db.Uuid
+
+  version        Int                  @default(1)
+  llmModel       String               @map("llm_model") @db.VarChar(100)
+  rewriteSql     String?              @map("rewrite_sql") @db.Text
+  indexDdl       String?              @map("index_ddl") @db.Text
+  llmExplanation String               @map("llm_explanation") @db.Text
+
+  status         RecommendationStatus @default(PENDING)
+
+  createdAt      DateTime             @default(now()) @map("created_at")
+  deliveredAt    DateTime?            @map("delivered_at")
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  template        QueryTemplate   @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  validationRuns  ValidationRun[]
+  feedback        Feedback?
+
+  @@index([tenantId, status])
+  @@index([templateId, version])
+  @@map("recommendations")
+}
+
+model ValidationRun {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recommendationId String           @map("recommendation_id") @db.Uuid
+
+  status           ValidationStatus @default(PENDING)
+  baselineDurationMs Float?         @map("baseline_duration_ms")
+  proposedDurationMs Float?         @map("proposed_duration_ms")
+  savingsPct       Float?           @map("savings_pct")
+  confidenceScore  Float?           @map("confidence_score")
+  errorMessage     String?          @map("error_message") @db.Text
+  replicaUsed      String?          @map("replica_used") @db.VarChar(255)
+
+  ranAt            DateTime         @default(now()) @map("ran_at")
+
+  recommendation   Recommendation   @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+
+  @@index([recommendationId, ranAt])
+  @@map("validation_runs")
+}
+
+model Feedback {
+  id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recommendationId String          @unique @map("recommendation_id") @db.Uuid
+
+  outcome          FeedbackOutcome
+  actualSavingsPct Float?          @map("actual_savings_pct")
+  notes            String?         @db.Text
+
+  appliedAt        DateTime?       @map("applied_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
+
+  recommendation   Recommendation  @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+
+  @@map("feedback")
+}
+
+model CollectorRun {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String          @map("tenant_id") @db.Uuid
+
+  status          CollectorStatus
+  queriesSeen     Int             @default(0) @map("queries_seen")
+  queriesEnqueued Int             @default(0) @map("queries_enqueued")
+  errorMessage    String?         @map("error_message") @db.Text
+  durationMs      Int?            @map("duration_ms")
+  ranAt           DateTime        @default(now()) @map("ran_at")
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, ranAt])
+  @@map("collector_runs")
+}
+
+enum RecommendationStatus {
+  PENDING
+  VALIDATED
+  DELIVERED
+  ACCEPTED
+  REJECTED
+  DEFERRED
+}
+
+enum ValidationStatus {
+  PENDING
+  PASSED
+  FAILED
+  ERROR
+}
+
+enum FeedbackOutcome {
+  ACCEPTED
+  REJECTED
+  DEFERRED
+}
+
+enum CollectorStatus {
+  SUCCESS
+  PARTIAL
+  FAILED
+}
