@@ -3,6 +3,10 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "dev": "bun run index.ts",
+    "worker:collector": "bun run src/workers/collectorWorker.ts"
+  },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/express": "^5.0.6",
@@ -15,7 +19,9 @@
   "dependencies": {
     "@prisma/adapter-pg": "^7.5.0",
     "@prisma/client": "^7.5.0",
+    "bullmq": "^5.71.1",
     "express": "^5.2.1",
+    "ioredis": "^5.10.1",
     "pg": "^8.20.0",
     "zod": "^4.3.6"
   }

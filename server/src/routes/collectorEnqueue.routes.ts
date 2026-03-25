@@ -1,9 +1,9 @@
 import express from "express";
-import { storeQueryExplain } from "../services/storeQueryExplain";
+import { collectorQueue } from "../queue/collectorQueue";
 
 const router = express.Router();
 
-router.post("/query/explain/store", async (req, res) => {
+router.post("/collector/enqueue", async (req, res) => {
   const { tenantId, query } = req.body ?? {};
 
   if (typeof tenantId !== "string" || typeof query !== "string") {
@@ -13,12 +13,18 @@ router.post("/query/explain/store", async (req, res) => {
   }
 
   try {
-    const result = await storeQueryExplain({ tenantId, query });
+    const job = await collectorQueue.add(
+      "collectAndStore",
+      { tenantId, query },
+      {
+        removeOnComplete: true,
+        attempts: 3,
+      },
+    );
 
-    return res.status(200).json({
-      templateId: result.templateId,
-      explainPlanId: result.explainPlanId,
-      ...result.parsed,
+    return res.status(202).json({
+      jobId: job.id,
+      queue: job.queueName,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
