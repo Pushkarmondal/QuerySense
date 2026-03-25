@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "bun run index.ts",
-    "worker:collector": "bun run src/workers/collectorWorker.ts"
+    "worker:collector": "bun run src/workers/collectorWorker.ts",
+    "worker:producer": "bun run src/workers/collectorProducerWorker.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
