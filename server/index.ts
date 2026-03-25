@@ -7,6 +7,7 @@ import queryExplainStoreRoutes from "./src/routes/queryExplainStore.routes";
 import queryTemplatesTopRoutes from "./src/routes/queryTemplatesTop.routes";
 import collectorEnqueueRoutes from "./src/routes/collectorEnqueue.routes";
 import collectorRoutes from "./src/routes/collector.routes";
+import recommendationsRoutes from "./src/routes/recommendations.routes";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3000);
@@ -21,6 +22,7 @@ app.use(queryExplainStoreRoutes);
 app.use(queryTemplatesTopRoutes);
 app.use(collectorEnqueueRoutes);
 app.use(collectorRoutes);
+app.use(recommendationsRoutes);
 
 const server = app.listen(port, () => {
   console.log(`QuerySense API listening on port ${port}`);

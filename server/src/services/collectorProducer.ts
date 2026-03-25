@@ -6,7 +6,8 @@ import { collectorQueue } from "../queue/collectorQueue";
 type SlowQueryRow = {
   query: string;
   calls: string | number;
-  total_exec_time: string | number;
+  total_exec_time?: string | number;
+  total_time?: string | number;
 };
 
 const getCollectorTopN = (): number => {
@@ -31,17 +32,38 @@ const fetchTopQueriesFromStatStatements = async (
 
   try {
     await client.connect();
+    const extensionCheck = await client.query<{ exists: boolean }>(
+      "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements') AS exists",
+    );
+    if (!extensionCheck.rows[0]?.exists) {
+      throw new Error("pg_stat_statements extension is not enabled.");
+    }
+
+    const columnCheck = await client.query<{ has_total_exec_time: boolean }>(
+      `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'pg_stat_statements'
+          AND column_name = 'total_exec_time'
+      ) AS has_total_exec_time
+      `,
+    );
+    const hasTotalExecTime = columnCheck.rows[0]?.has_total_exec_time ?? false;
+    const totalTimeColumn = hasTotalExecTime ? "total_exec_time" : "total_time";
+
     const result = await client.query<SlowQueryRow>(
       `
       SELECT
         query,
         calls,
-        total_exec_time
+        ${totalTimeColumn}
       FROM pg_stat_statements
       WHERE dbid = (SELECT oid FROM pg_database WHERE datname = $1)
         AND calls >= $2
         AND query ILIKE 'select %'
-      ORDER BY (total_exec_time * calls) DESC
+      ORDER BY (${totalTimeColumn} * calls) DESC
       LIMIT $3
       `,
       [dbName, minCalls, topN],

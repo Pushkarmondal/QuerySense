@@ -1,6 +1,6 @@
-import crypto from "crypto";
 import { prisma } from "../../db/prismaConnection";
 import { parseExplainResult, rawQuery, type ParsedExplainPlan } from "../rawquery/rawQuery";
+import { fingerprintSql, normalizeSql } from "../utils/sqlFingerprint";
 
 export type StoreQueryExplainInput = {
   tenantId: string;
@@ -19,14 +19,9 @@ export const storeQueryExplain = async (
   const tenantId = input.tenantId;
   const query = input.query;
 
-  const normalizedSql = query.trim(); // TODO: replace with literal-normalization (strip literals -> canonical form)
+  const normalizedSql = normalizeSql(query);
   const rawSqlSample = query.trim();
-
-  const fingerprintHash = crypto
-    .createHash("sha256")
-    .update(normalizedSql)
-    .digest("hex")
-    .slice(0, 64); // matches schema length
+  const fingerprintHash = fingerprintSql(normalizedSql);
 
   const rawPlan = await rawQuery(rawSqlSample);
   const parsed = parseExplainResult(rawPlan);
