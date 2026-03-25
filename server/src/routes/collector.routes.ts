@@ -1,6 +1,7 @@
 import express from "express";
 import { prisma } from "../../db/prismaConnection";
 import { collectorQueue } from "../queue/collectorQueue";
+import { deadLetterQueue } from "../queue/deadLetterQueue";
 import { runCollectorCycle } from "../services/collectorProducer";
 
 const router = express.Router();
@@ -48,7 +49,46 @@ router.get("/collector/queue/stats", async (_req, res) => {
       "delayed",
       "paused",
     );
-    return res.status(200).json({ queue: collectorQueue.name, counts });
+    const deadLetterCounts = await deadLetterQueue.getJobCounts(
+      "waiting",
+      "active",
+      "completed",
+      "failed",
+      "delayed",
+      "paused",
+    );
+    return res.status(200).json({
+      queue: collectorQueue.name,
+      counts,
+      deadLetterQueue: deadLetterQueue.name,
+      deadLetterCounts,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return res.status(400).json({ error: message });
+  }
+});
+
+router.get("/collector/queue/failed", async (req, res) => {
+  const limitParam = req.query.limit;
+  let limit = 20;
+  if (typeof limitParam === "string") {
+    const parsed = Number.parseInt(limitParam, 10);
+    if (!Number.isNaN(parsed)) limit = parsed;
+  }
+  limit = Math.max(1, Math.min(limit, 100));
+
+  try {
+    const jobs = await collectorQueue.getFailed(0, limit - 1);
+    const failed = jobs.map((job) => ({
+      id: job.id,
+      name: job.name,
+      data: job.data,
+      failedReason: job.failedReason,
+      attemptsMade: job.attemptsMade,
+      timestamp: job.timestamp,
+    }));
+    return res.status(200).json({ failed });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return res.status(400).json({ error: message });

@@ -1,6 +1,7 @@
 import { Worker } from "bullmq";
 import { redisConnection } from "../queue/redisConnection";
 import { COLLECTOR_QUEUE_NAME } from "../queue/collectorQueue";
+import { deadLetterQueue } from "../queue/deadLetterQueue";
 import { storeQueryExplain } from "../services/storeQueryExplain";
 
 type CollectAndStoreJobData = {
@@ -39,9 +40,21 @@ worker.on("completed", (job) => {
   );
 });
 
-worker.on("failed", (job, err) => {
+worker.on("failed", async (job, err) => {
   console.error(
     `Collector job failed: ${job?.name} jobId=${job?.id} error=${err?.message ?? "unknown"}`,
+  );
+  if (!job) return;
+  await deadLetterQueue.add(
+    "collector-dead-letter",
+    {
+      sourceJobId: job.id,
+      name: job.name,
+      data: job.data,
+      error: err?.message ?? "unknown",
+      failedAt: new Date().toISOString(),
+    },
+    { removeOnComplete: 5000 },
   );
 });
 

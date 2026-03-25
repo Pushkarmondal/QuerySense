@@ -1,6 +1,25 @@
 import { prisma } from "../../db/prismaConnection";
 
 const DISALLOWED_SQL = /\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|copy)\b/i;
+const MULTI_STATEMENT = /;[\s\S]*\S/;
+const SQL_COMMENT = /(--|\/\*)/;
+
+export const assertSafeReadOnlyQuery = (query: string): string => {
+  const trimmed = query.trim().replace(/;+\s*$/, "");
+  if (!trimmed) {
+    throw new Error("Query is required.");
+  }
+  if (!/^select\b/i.test(trimmed) || DISALLOWED_SQL.test(trimmed)) {
+    throw new Error("Only read-only SELECT queries are allowed.");
+  }
+  if (MULTI_STATEMENT.test(trimmed)) {
+    throw new Error("Only single-statement queries are allowed.");
+  }
+  if (SQL_COMMENT.test(trimmed)) {
+    throw new Error("SQL comments are not allowed.");
+  }
+  return trimmed;
+};
 
 type ExplainNode = {
   "Node Type"?: string;
@@ -31,16 +50,7 @@ export type ParsedExplainPlan = {
 };
 
 export const rawQuery = async (query: string) => {
-  const trimmed = query.trim().replace(/;+\s*$/, "");
-
-  if (!trimmed) {
-    throw new Error("Query is required.");
-  }
-
-  // Guardrail for MVP: only allow read-only SELECT statements.
-  if (!/^select\b/i.test(trimmed) || DISALLOWED_SQL.test(trimmed)) {
-    throw new Error("Only read-only SELECT queries are allowed.");
-  }
+  const trimmed = assertSafeReadOnlyQuery(query);
 
   const explainSql = `EXPLAIN (ANALYZE, FORMAT JSON) ${trimmed}`;
   return prisma.$queryRawUnsafe(explainSql);

@@ -2,6 +2,7 @@ import { CollectorStatus } from "../../generated/prisma/client";
 import { Client } from "pg";
 import { prisma } from "../../db/prismaConnection";
 import { collectorQueue } from "../queue/collectorQueue";
+import { fingerprintSql, normalizeSql } from "../utils/sqlFingerprint";
 
 type SlowQueryRow = {
   query: string;
@@ -112,15 +113,16 @@ export const runCollectorCycle = async (): Promise<{
       );
       queriesSeen = queries.length;
 
-      for (let i = 0; i < queries.length; i += 1) {
-        const query = queries[i];
-        const jobId = `${tenant.id}:${i}:${minuteBucket()}`;
+      for (const query of queries) {
+        const fingerprint = fingerprintSql(normalizeSql(query));
+        const jobId = `${tenant.id}:${fingerprint}:${minuteBucket()}`;
         await collectorQueue.add(
           "collectAndStore",
           { tenantId: tenant.id, query },
           {
             jobId,
-            removeOnComplete: true,
+            removeOnComplete: 1000,
+            removeOnFail: false,
             attempts: 3,
             backoff: { type: "exponential", delay: 1000 },
           },

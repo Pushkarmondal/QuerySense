@@ -1,4 +1,5 @@
 import express from "express";
+import { z } from "zod";
 import { FeedbackOutcome, RecommendationStatus } from "../../generated/prisma/client";
 import { prisma } from "../../db/prismaConnection";
 import {
@@ -7,12 +8,17 @@ import {
 } from "../services/recommendationEngine.ts";
 
 const router = express.Router();
+const GenerateSchema = z.object({
+  tenantId: z.uuid(),
+  templateId: z.uuid().optional(),
+});
 
 router.post("/recommendations/generate", async (req, res) => {
-  const { tenantId, templateId } = req.body ?? {};
-  if (typeof tenantId !== "string") {
+  const parsedBody = GenerateSchema.safeParse(req.body ?? {});
+  if (!parsedBody.success) {
     return res.status(400).json({ error: "Body must include `tenantId` as string." });
   }
+  const { tenantId, templateId } = parsedBody.data;
 
   try {
     const result = await generateAndValidateRecommendation({
@@ -27,7 +33,21 @@ router.post("/recommendations/generate", async (req, res) => {
 });
 
 router.post("/recommendations/:id/validate", async (req, res) => {
+  if (!z.string().uuid().safeParse(req.params.id).success) {
+    return res.status(400).json({ error: "Invalid recommendation id." });
+  }
   try {
+    const tenantHeader = req.header("x-tenant-id");
+    if (tenantHeader) {
+      const rec = await prisma.recommendation.findUnique({
+        where: { id: req.params.id },
+        select: { tenantId: true },
+      });
+      if (!rec) return res.status(404).json({ error: "Recommendation not found." });
+      if (rec.tenantId !== tenantHeader) {
+        return res.status(403).json({ error: "Forbidden: tenant scope mismatch." });
+      }
+    }
     const validationRun = await validateRecommendationById(req.params.id);
     return res.status(200).json({ validationRun });
   } catch (error) {
@@ -37,6 +57,9 @@ router.post("/recommendations/:id/validate", async (req, res) => {
 });
 
 router.post("/recommendations/:id/feedback", async (req, res) => {
+  if (!z.string().uuid().safeParse(req.params.id).success) {
+    return res.status(400).json({ error: "Invalid recommendation id." });
+  }
   const { outcome, actualSavingsPct, notes, appliedAt } = req.body ?? {};
   if (
     outcome !== FeedbackOutcome.ACCEPTED &&
@@ -49,11 +72,15 @@ router.post("/recommendations/:id/feedback", async (req, res) => {
   }
 
   try {
+    const tenantHeader = req.header("x-tenant-id");
     const recommendation = await prisma.recommendation.findUnique({
       where: { id: req.params.id },
     });
     if (!recommendation) {
       return res.status(404).json({ error: "Recommendation not found." });
+    }
+    if (tenantHeader && recommendation.tenantId !== tenantHeader) {
+      return res.status(403).json({ error: "Forbidden: tenant scope mismatch." });
     }
 
     const feedback = await prisma.feedback.upsert({
